@@ -67,8 +67,17 @@ bool set_lantency_free(void *priv_data, const std::string &name) {
 
   if (name.find("nvenc") != std::string::npos) {
     if ((ret = av_opt_set(priv_data, "delay", "0", 0)) < 0) {
-      LOG_ERROR(std::string("nvenc set_lantency_free failed, ret = ") + av_err2str(ret));
+      LOG_ERROR(std::string("nvenc set delay=0 failed, ret = ") + av_err2str(ret));
       return false;
+    }
+    // Ultra-low-latency tuning for NVENC — minimizes encoder buffering
+    if ((ret = av_opt_set(priv_data, "tune", "ull", 0)) < 0) {
+      // tune=ull may not be supported on older NVENC versions, non-fatal
+      LOG_TRACE(std::string("nvenc tune=ull not supported (non-fatal), ret = ") + av_err2str(ret));
+    }
+    // Disable B-frames for lowest latency
+    if ((ret = av_opt_set(priv_data, "b_ref_mode", "disabled", 0)) < 0) {
+      LOG_TRACE(std::string("nvenc b_ref_mode=disabled not supported (non-fatal), ret = ") + av_err2str(ret));
     }
   }
   if (name.find("amf") != std::string::npos) {
@@ -79,8 +88,12 @@ bool set_lantency_free(void *priv_data, const std::string &name) {
   }
   if (name.find("qsv") != std::string::npos) {
     if ((ret = av_opt_set(priv_data, "async_depth", "1", 0)) < 0) {
-      LOG_ERROR(std::string("qsv set_lantency_free failed, ret = ") + av_err2str(ret));
+      LOG_ERROR(std::string("qsv set async_depth=1 failed, ret = ") + av_err2str(ret));
       return false;
+    }
+    // Low-latency mode for Intel QSV
+    if ((ret = av_opt_set(priv_data, "low_latency", "1", 0)) < 0) {
+      LOG_TRACE(std::string("qsv low_latency=1 not supported (non-fatal), ret = ") + av_err2str(ret));
     }
   }
   if (name.find("vaapi") != std::string::npos) {
