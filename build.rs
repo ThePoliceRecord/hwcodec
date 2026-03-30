@@ -100,7 +100,12 @@ mod ffmpeg {
 
     pub fn build_ffmpeg(builder: &mut Build) {
         ffmpeg_ffi();
-        link_vcpkg(builder, std::env::var("VCPKG_ROOT").unwrap().into());
+        // Try pkg-config first (nix, system packages), fall back to vcpkg
+        if !try_link_pkg_config(builder) {
+            link_vcpkg(builder, std::env::var("VCPKG_ROOT")
+                .expect("VCPKG_ROOT not set and pkg-config failed. Install FFmpeg dev packages or set VCPKG_ROOT.")
+                .into());
+        }
         link_os();
         build_ffmpeg_ram(builder);
         #[cfg(feature = "vram")]
@@ -110,6 +115,43 @@ mod ffmpeg {
         if target_os == "macos" || target_os == "ios" {
             builder.flag("-std=c++11");
         }
+    }
+
+    /// Try to find FFmpeg via pkg-config (works with nix, apt, etc.)
+    /// Returns true if successful, false if pkg-config is unavailable or FFmpeg not found.
+    fn try_link_pkg_config(builder: &mut Build) -> bool {
+        #[cfg(feature = "linux-pkg-config")]
+        {
+            let libs = ["libavcodec", "libavutil", "libavformat"];
+            let mut all_found = true;
+            for lib_name in &libs {
+                match pkg_config::Config::new()
+                    .atleast_version("58")
+                    .probe(lib_name)
+                {
+                    Ok(lib) => {
+                        for path in &lib.include_paths {
+                            builder.include(path);
+                        }
+                        // pkg-config handles the link flags automatically via cargo: directives
+                        println!("cargo:info=pkg-config found {}", lib_name);
+                    }
+                    Err(e) => {
+                        println!("cargo:warning=pkg-config: {} not found: {}", lib_name, e);
+                        all_found = false;
+                    }
+                }
+            }
+            if all_found {
+                println!("cargo:info=Using FFmpeg from pkg-config");
+                return true;
+            }
+        }
+        #[cfg(not(feature = "linux-pkg-config"))]
+        {
+            // pkg-config feature not enabled, skip
+        }
+        false
     }
 
     fn link_vcpkg(builder: &mut Build, mut path: PathBuf) -> PathBuf {
